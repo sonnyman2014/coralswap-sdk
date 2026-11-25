@@ -597,9 +597,9 @@ npm run check:bundle-size
 
 | Budget                              | Value     |
 | ----------------------------------- | --------- |
-| `src/index.ts` (minified bundle)   | 229 KiB (234432 bytes) |
+| `src/index.ts` (minified bundle)   | 248 KiB (253952 bytes) |
 
-The budget is enforced in CI by `.github/workflows/bundle-size.yml`. The measured baseline is 215.1 KiB (220,313 bytes) at `0d73bc2` on 2026-09-26; the post-merge fee work measures 227.6 KiB (233,091 bytes) in this workspace, so this cap keeps a small cushion while still guarding dead-export regressions. To change it, update `BUNDLE_SIZE_BUDGET_BYTES` in `scripts/check-bundle-size.mjs` and this table, and record the commit the new baseline was measured at.
+The budget is enforced in CI by `.github/workflows/bundle-size.yml`. The measured baseline was 215.1 KiB (220,313 bytes) at `0d73bc2` on 2026-09-26; after subsequent module merges on `main` (`4858637`) and RPC passphrase verification (`#866`), the public surface measures 241.6 KiB (247,448 bytes), so this cap keeps ~2.6% headroom while still guarding dead-export regressions. To change it, update `BUNDLE_SIZE_BUDGET_BYTES` in `scripts/check-bundle-size.mjs` and this table, and record the commit the new baseline was measured at.
 
 ## Design Principles
 

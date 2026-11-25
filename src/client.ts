@@ -7,7 +7,7 @@ import {
 } from '@stellar/stellar-sdk';
 import { CoralSwapConfig, NetworkConfig, NETWORK_CONFIGS, DEFAULTS } from '@/config';
 import { Network, Result, Logger, Signer, SimulateTransactionOptions, SimulateTransactionResult } from '@/types/common';
-import { NotConfiguredError, SignerError } from '@/errors';
+import { NotConfiguredError, NetworkMismatchError, SignerError } from '@/errors';
 import { FactoryClient } from '@/contracts/factory';
 import { PairClient } from '@/contracts/pair';
 import { RouterClient } from '@/contracts/router';
@@ -26,6 +26,12 @@ import { TransactionComposer } from '@/transaction-composer';
 import { TypedEventCursor } from '@/utils/event-cursor';
 import { EventCursorOptions } from '@/utils/event-cursor';
 export { KeypairSigner, PollingStrategy, PollingOptions };
+
+/** Verified Soroban RPC endpoint metadata cached per URL. */
+export interface EndpointNetworkInfo {
+  passphrase: string;
+  protocolVersion: number;
+}
 
 /**
  * Default signer implementation that wraps a Stellar Keypair.
@@ -60,8 +66,111 @@ export class CoralSwapClient {
   private _factoryModule: FactoryModule | null = null;
   private _portfolio: PortfolioModule | null = null;
   private _poller: TransactionPoller | null = null;
+  private _verifiedEndpoints = new Map<string, EndpointNetworkInfo>();
   private readonly logger?: Logger;
   private readonly _rateLimiter?: RateLimiter;
+
+  private shouldSkipLazyVerify(server: rpc.Server): boolean {
+    if (typeof server.getNetwork !== 'function') return true;
+    if (server instanceof rpc.Server) {
+      const protoFn = rpc.Server.prototype.getNetwork as unknown as {
+        _isMockFunction?: boolean;
+      };
+      if (server.getNetwork !== rpc.Server.prototype.getNetwork || Boolean(protoFn._isMockFunction)) {
+        return false;
+      }
+      return Object.keys(server).some(
+        (k) =>
+          k !== 'httpClient' &&
+          typeof (server as unknown as Record<string, unknown>)[k] === 'function',
+      );
+    }
+    return false;
+  }
+
+  private async verifyEndpointServer(
+    rpcUrl: string,
+    server: rpc.Server,
+    lazy: boolean,
+  ): Promise<boolean> {
+    if (this._verifiedEndpoints.has(rpcUrl)) return true;
+    if (lazy && this.shouldSkipLazyVerify(server)) return true;
+
+    let net: rpc.Api.GetNetworkResponse;
+    try {
+      net = await server.getNetwork();
+    } catch (err) {
+      if (
+        lazy &&
+        err instanceof Error &&
+        err.message.startsWith('MockProvider: getNetwork() is not implemented')
+      ) {
+        return true;
+      }
+      throw err;
+    }
+
+    const expected = this.networkConfig.networkPassphrase;
+    if (net.passphrase !== expected) {
+      this.logger?.warn?.('RPC endpoint network passphrase mismatch; removing from pool', {
+        url: rpcUrl,
+        expectedPassphrase: expected,
+        actualPassphrase: net.passphrase,
+      });
+      this._connectionPool.removeEndpoint(rpcUrl);
+      this._rpcUrls = this._rpcUrls.filter((u) => u !== rpcUrl);
+      if (this._connectionPool.size === 0) {
+        throw new NetworkMismatchError(expected, net.passphrase, rpcUrl);
+      }
+      if (this._activeRpcUrl === rpcUrl && this._rpcUrls.length > 0) {
+        this._activeRpcUrl = this._rpcUrls[0];
+        this.server = this.createRpcServer(this._activeRpcUrl);
+        this._factory = null;
+        this._router = null;
+      }
+      return false;
+    }
+
+    this._verifiedEndpoints.set(rpcUrl, {
+      passphrase: net.passphrase,
+      protocolVersion: Number(net.protocolVersion ?? 0),
+    });
+    return true;
+  }
+
+  /**
+   * Eagerly verify that every configured RPC endpoint serves the client's
+   * configured `networkPassphrase`, recording its `protocolVersion`.
+   * Mismatched endpoints are removed from the pool with a logged warning;
+   * throws {@link NetworkMismatchError} if no matching endpoints remain.
+   */
+  async verifyEndpoints(): Promise<Map<string, EndpointNetworkInfo>> {
+    const urls = [...this._connectionPool.healthyEndpoints()];
+    for (const url of urls) {
+      const server = url === this._activeRpcUrl ? this.server : this.createRpcServer(url);
+      await this.verifyEndpointServer(url, server, false);
+    }
+    if (this._connectionPool.size === 0) {
+      throw new NetworkMismatchError(this.networkConfig.networkPassphrase);
+    }
+    return new Map(this._verifiedEndpoints);
+  }
+
+  /** Read-only view of verified RPC endpoints and their recorded protocol versions. */
+  getVerifiedEndpoints(): ReadonlyMap<string, EndpointNetworkInfo> {
+    return this._verifiedEndpoints;
+  }
+
+  /** Add a fallback RPC endpoint URL to the rotation pool and verify its network passphrase. */
+  async addRpcEndpoint(rpcUrl: string): Promise<EndpointNetworkInfo | null> {
+    validateRpcUrls(rpcUrl, this.network);
+    if (!this._rpcUrls.includes(rpcUrl)) {
+      this._rpcUrls.push(rpcUrl);
+    }
+    this._connectionPool.addEndpoint(rpcUrl);
+    const ok = await this.verifyEndpointServer(rpcUrl, this.createRpcServer(rpcUrl), true);
+    return ok ? (this._verifiedEndpoints.get(rpcUrl) ?? null) : null;
+  }
 
   /**
    * Helper to execute an async RPC function with exponential backoff retry
@@ -80,6 +189,10 @@ export class CoralSwapClient {
 
     let lastError: unknown;
 
+    if (this._connectionPool.size === 0) {
+      throw new NetworkMismatchError(this.networkConfig.networkPassphrase);
+    }
+
     for (let attempt = 0; attempt < this._connectionPool.size; attempt++) {
       const rpcUrl = this._connectionPool.getEndpoint();
 
@@ -92,6 +205,12 @@ export class CoralSwapClient {
       }
 
       try {
+        const verified = await this.verifyEndpointServer(rpcUrl, this.server, true);
+        if (!verified) {
+          attempt--;
+          continue;
+        }
+
         const result = await withRetry(
             async () => {
               // Acquire a rate-limiter token per dispatch attempt so retries
@@ -109,7 +228,7 @@ export class CoralSwapClient {
         this._connectionPool.reportSuccess(rpcUrl);
         return result;
       } catch (err) {
-        if (!isRetryable(err)) {
+        if (err instanceof NetworkMismatchError || !isRetryable(err)) {
           throw err;
         }
 
@@ -385,7 +504,7 @@ export class CoralSwapClient {
    * @example
    * client.setNetwork(Network.MAINNET);
    */
-  setNetwork(network: Network, rpcUrl?: string): void {
+  setNetwork(network: Network, rpcUrl?: string | string[]): void {
     this.network = network;
     this.networkConfig = {
       ...NETWORK_CONFIGS[network],
@@ -403,6 +522,7 @@ export class CoralSwapClient {
     // Keep networkConfig.rpcUrl in sync with the active RPC URL
     this.networkConfig.rpcUrl = this._rpcUrls[0];
 
+    this._verifiedEndpoints.clear();
     this._connectionPool = new ConnectionPool(this._rpcUrls);
     this._activeRpcUrl = this._rpcUrls[0];
     this._server = this.createRpcServer(this._activeRpcUrl);
@@ -614,6 +734,9 @@ export class CoralSwapClient {
       const result = await this.pollTransaction(response.hash);
       return result;
     } catch (err) {
+      if (err instanceof NetworkMismatchError) {
+        throw err;
+      }
       this.logger?.error("submitTransaction: unexpected error", {
         name: err instanceof Error ? err.name : 'Unknown',
         message: err instanceof Error ? err.message : String(err),

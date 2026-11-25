@@ -47,6 +47,7 @@ export type RetryPolicy = "retry-with-backoff" | "fail-fast" | "none";
  */
 export const ERROR_TAXONOMY: Array<{ class: string; code: string; retryPolicy: RetryPolicy }> = [
   { class: "NetworkError", code: "NETWORK_ERROR", retryPolicy: "retry-with-backoff" },
+  { class: "NetworkMismatchError", code: "NETWORK_MISMATCH", retryPolicy: "fail-fast" },
   { class: "RpcError", code: "RPC_ERROR", retryPolicy: "retry-with-backoff" },
   { class: "SimulationError", code: "SIMULATION_ERROR", retryPolicy: "fail-fast" },
   { class: "TransactionError", code: "TRANSACTION_ERROR", retryPolicy: "fail-fast" },
@@ -84,6 +85,36 @@ export class NetworkError extends CoralSwapSDKError {
   constructor(message: string, details?: Record<string, unknown>) {
     super("NETWORK_ERROR", message, details);
     this.name = "NetworkError";
+  }
+}
+
+/**
+ * RPC endpoint serves a different Stellar network passphrase than configured.
+ */
+export class NetworkMismatchError extends CoralSwapSDKError {
+  readonly expectedPassphrase: string;
+  readonly actualPassphrase?: string;
+  readonly rpcUrl?: string;
+
+  constructor(
+    expectedPassphrase: string,
+    actualPassphrase?: string,
+    rpcUrl?: string,
+    details?: Record<string, unknown>,
+  ) {
+    const target = rpcUrl ? ` at "${rpcUrl}"` : "";
+    const actual = actualPassphrase
+      ? `got "${actualPassphrase}"`
+      : "no matching RPC endpoints remain";
+    super(
+      "NETWORK_MISMATCH",
+      `RPC network passphrase mismatch${target}: expected "${expectedPassphrase}", ${actual}`,
+      { expectedPassphrase, actualPassphrase, rpcUrl, ...details },
+    );
+    this.name = "NetworkMismatchError";
+    this.expectedPassphrase = expectedPassphrase;
+    this.actualPassphrase = actualPassphrase;
+    this.rpcUrl = rpcUrl;
   }
 }
 

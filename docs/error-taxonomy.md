@@ -7,6 +7,7 @@ This document maps CoralSwap SDK error classes to their string codes and recomme
 | Error Class | Error Code | Retry Policy |
 |-------------|------------|--------------|
 | `NetworkError` | `NETWORK_ERROR` | `retry-with-backoff` |
+| `NetworkMismatchError` | `NETWORK_MISMATCH` | `fail-fast` |
 | `RpcError` | `RPC_ERROR` | `retry-with-backoff` |
 | `SimulationError` | `SIMULATION_ERROR` | `fail-fast` |
 | `TransactionError` | `TRANSACTION_ERROR` | `fail-fast` |

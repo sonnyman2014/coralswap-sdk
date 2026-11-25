@@ -8,6 +8,7 @@ import {
   ERROR_TAXONOMY,
   CoralSwapSDKError,
   NetworkError,
+  NetworkMismatchError,
   RpcError,
   SimulationError,
   TransactionError,
@@ -40,6 +41,7 @@ import {
 describe('Error Taxonomy Conformance', () => {
   const errorClassMap: Record<string, typeof CoralSwapSDKError> = {
     NetworkError,
+    NetworkMismatchError,
     RpcError,
     SimulationError,
     TransactionError,
@@ -120,6 +122,8 @@ describe('Error Taxonomy Conformance', () => {
 
         if (className === 'NetworkError') {
           instance = new NetworkError('test');
+        } else if (className === 'NetworkMismatchError') {
+          instance = new NetworkMismatchError('expected-passphrase', 'actual-passphrase', 'https://rpc.example.com');
         } else if (className === 'RpcError') {
           instance = new RpcError('test');
         } else if (className === 'SimulationError') {
@@ -191,6 +195,8 @@ describe('Error Taxonomy Conformance', () => {
 
         if (className === 'NetworkError') {
           instance = new NetworkError('test message');
+        } else if (className === 'NetworkMismatchError') {
+          instance = new NetworkMismatchError('expected-passphrase', 'actual-passphrase', 'https://rpc.example.com');
         } else if (className === 'RpcError') {
           instance = new RpcError('test message');
         } else if (className === 'SimulationError') {

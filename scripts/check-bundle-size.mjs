@@ -48,7 +48,7 @@ import { fileURLToPath } from 'node:url';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(__dirname, '..');
 
-const BUNDLE_SIZE_BUDGET_BYTES = 234432; // 229 KiB; current post-merge footprint is 227.6 KiB (233091 bytes)
+const BUNDLE_SIZE_BUDGET_BYTES = 253952; // 248 KiB; current footprint at 4858637 + #866 is 241.6 KiB (247,448 bytes)
 const ENTRY = path.join(root, 'src', 'index.ts');
 const SKIP_IF_SRC_MISSING = process.env.BUNDLE_SKIP_IF_NOT_BUILT === '1';
 

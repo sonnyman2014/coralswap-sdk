@@ -28,6 +28,7 @@
 
 // Core client
 export { CoralSwapClient } from "@/client";
+export type { EndpointNetworkInfo } from "@/client";
 export { KeypairSigner, assertSignerNetwork } from "@/utils/signer";
 
 // Configuration
@@ -202,6 +203,7 @@ export { validateWithSchema, OrderBookAddressSchema, TradeFilterSchema } from "@
 export {
   CoralSwapSDKError,
   NetworkError,
+  NetworkMismatchError,
   RpcError,
   SimulationError,
   TransactionError,

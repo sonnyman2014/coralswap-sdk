@@ -3,6 +3,7 @@
 ## [Unreleased]
 
 ### Added
+- RPC network passphrase verification across `CoralSwapClient` (`verifyEndpoints()`, `getVerifiedEndpoints()`, `addRpcEndpoint()`, lazy per-URL `getNetwork()` check in `executeWithFallback`, and `setNetwork()` re-verification): mismatches are pruned from `ConnectionPool` with a warning, `protocolVersion` is cached per URL, and `NetworkMismatchError` (`NETWORK_MISMATCH`, fail-fast) is thrown before signing or dispatching when no matching endpoint remains (#866)
 - Explicit slippage policy on every swap entry point: `slippageToleranceBps` (validated 1-1000, default 100 bps) derives `amountOutMin`/`maxAmountIn` from the current route quote, so no swap path executes without a documented bound (#679)
 - `GovernanceModule.cancelProposal()` and `executeProposal()`, and `decodeProposal` now returns the proposal's `actions` instead of an empty array (#655)
 - Test matrices for governance (propose, decode actions, cancel, execute) and staking cooldown boundaries (#655), an events-timeline continuity suite over multi-page ledgers (#657), and a tax-reporting regression suite for non-zero gains, BigInt-safe cost basis and exports past 200 events (#659)
